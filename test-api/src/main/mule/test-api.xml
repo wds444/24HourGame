@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation" xmlns:sockets="http://www.mulesoft.org/schema/mule/sockets"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/sockets http://www.mulesoft.org/schema/mule/sockets/current/mule-sockets.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="d55b73c9-817f-4267-ba94-eb2ab7cfe4fa" >
+		<http:listener-connection host="0.0.0.0" port="80" />
+	</http:listener-config>
+	<file:config name="file-csv" doc:name="File Config" doc:id="b5235e4b-5a54-4bd1-b603-256a371e1a3b" >
+		<file:connection workingDir="C:\24HourGame" />
+	</file:config>
+	<os:config name="ObjectStore_Config" doc:name="ObjectStore Config" doc:id="04da2cbd-099b-4ce6-8d11-22b08bf253b4" >
+		<os:connection >
+			<reconnection failsDeployment="true" >
+				<reconnect-forever />
+			</reconnection>
+		</os:connection>
+	</os:config>
+	<os:object-store name="OS_controleCodes" doc:name="Object store" doc:id="5bf8a3d0-988f-4cf6-a879-67e93279b4b4" entryTtl="2" entryTtlUnit="DAYS" config-ref="ObjectStore_Config" />
+	<validation:config name="Validation_Config" doc:name="Validation Config" doc:id="5ba59f61-1b7b-4ae7-8345-826dc24a8631" />
+	<file:config name="desktop-excell" doc:name="File Config" doc:id="22a5b37b-4705-4e0b-8007-213ec036ccbf" >
+		<file:connection workingDir="C:\24HourGame" />
+	</file:config>
+	<os:object-store name="OS_allowclaims" doc:name="Object store" doc:id="040fa107-3779-47c9-96ec-1a4ac6929e28" />
+	<os:object-store name="OS_hasbeenclaimed" doc:name="Object store" doc:id="6ef9761d-56b8-4a45-9e68-cc7b1e590316" />
+	<flow name="DR-update-claimcode-sources" doc:id="9b341b2c-60c3-452e-a089-ad0abab3e86e" >
+		<file:read doc:name="Read old csv into vars.oldvalues" doc:id="deab6f58-b4e9-4220-90a3-171114f3665e" config-ref="file-csv" path="controlecodes.csv" target="oldvalues" />
+		<logger level="DEBUG" doc:name="Logger" doc:id="ca59d199-706e-4a6b-af2c-ef6cdea75934" message="#[output application/json --- vars.oldvalues]" />
+		<ee:transform doc:name="insert updated controll code into newcsv var" doc:id="65cb0762-0d12-4c06-a738-f1dfc3e29031">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="newcsv"><![CDATA[output application/csv
+---
+vars.oldvalues map (item, index) -> 
+	if (item.locatieID == payload.kwadrant)
+	{
+    "locatieID": item.locatieID,
+    "controleCode": vars.code,
+    "naam": item.naam
+  } else {
+    "locatieID": item.locatieID,
+    "controleCode": item.controleCode,
+    "naam": item.naam
+  }
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<file:write doc:name="write new claimcodes to csv" doc:id="f1e2c3f1-858f-469f-acb7-006bdbc1cb11" config-ref="file-csv" path="controlecodes.csv">
+			<file:content><![CDATA[#[vars.newcsv]]]></file:content>
+		</file:write>
+		<os:store doc:name="Store" doc:id="a059f9b6-9acb-451c-b150-ac2657a440c9" key="#[payload.kwadrant as String]" objectStore="OS_controleCodes">
+			<os:value><![CDATA[#[vars.code as Number]]]></os:value>
+		</os:store>
+		<logger level="DEBUG" doc:name="log nieuw csv" doc:id="8f9973cf-a6f6-435a-99b2-c7b773006d64" message='#[output application/json --- {"nieuw: ": vars.newcsv}]' />
+	</flow>
+	<sub-flow name="process-correct" doc:id="75702eac-d235-461f-b2ff-f7314b454d11">
+		<set-variable value="#[(randomInt(90000) + 10000) as Number]" doc:name="Generate new cc" doc:id="bc0a74b6-05f0-49da-92d7-594981ee5b25" variableName="code" />
+		<flow-ref doc:name="ref-to-store-claim" doc:id="9a949a10-5ce3-4a4c-adbc-0a4e197cb187" name="store-claim" />
+		<set-payload value='#[output text/plain --- ("&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+
+&lt;h1&gt; Kwadrant " ++ payload.KwadrantId as String ++ " Geclaimd!&lt;/h1&gt;
+
+&lt;h2&gt;De nieuwe ClaimCode is: " ++ vars.code as String ++ "&lt;/h2&gt;
+
+&lt;p&gt;Team: " ++ payload.Team as String ++ payload.Subteam as String ++ "&lt;/p&gt;
+&lt;p&gt;tijd: " ++ now() as String{format: "dd-MMM-y"} ++ " om " ++ now() as String {format: "H:mm"}  ++"&lt;/p&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;") as String]' doc:name="Set Payload" doc:id="b5a2de8d-126a-4b47-bcb3-d84fd855013f" mimeType="text/html" />
+	</sub-flow>
+	<flow name="store-claim" doc:id="15171c68-dba8-472f-ac59-f9c64c9ef958">
+		<!--  file:read doc:name="Read old csv and store to var" doc:id="2cf543a6-252f-4414-ab7f-88799171cf33" /-->
+		<flow-ref doc:name="Flow Reference" doc:id="1bcf1479-03af-41a1-ab2c-b14e39ffa455" name="DR-update-claimcode-sources" />
+		<file:read doc:name="Read excell" doc:id="c473dcea-9a1a-45cc-a15a-effb417e78a0" config-ref="desktop-excell" path="test.xlsx" outputMimeType="application/xlsx" target="excell" />
+		<logger level="DEBUG" doc:name="Logger" doc:id="a1bd1595-bcb8-4c38-8691-0688d3cfe46e" message='#[{"payload": payload}]' />
+		<ee:transform doc:name="Transform Message" doc:id="161875ce-cfe5-489a-b5a5-f728e40db027">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+
+    {
+      KwadrantId: payload.kwadrant as Number,
+      Team: payload.kleur default "ongeldig",
+      Subteam: payload.subteam default 0,
+      Datum: now() as String{format: "dd-MMM-y"},
+      Tijd: now() as String {format: "H:mm"} ,
+      Controlecode: vars.code
+    }
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="DEBUG" doc:name="Logger" doc:id="cc8ef7cb-ca39-4c0d-9762-f7efdfd0d2ea" message='#[output application/json --- vars.excell ++ payload]' />
+		<ee:transform doc:name="append payload to var and structure" doc:id="cf42a85d-1a15-4437-ad22-5f77806284ad">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="newexcell"><![CDATA[%dw 2.0
+output application/xlsx header=true
+
+fun extractNumber(pageName: Key) = 
+     (pageName as String match  /kwadrant([0-9]+)/)[1]    
+---
+vars.excell mapObject ((value, key, index) -> do {
+        if(extractNumber(key) as Number == payload.KwadrantId as Number)
+            {(key): value << payload}
+         else
+            {(key): value}
+})
+
+
+]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="DEBUG" doc:name="Logger" doc:id="83a550be-0cf9-4b92-87d2-95b04fb31871" message="#[output application/json --- vars.newexcell]"/>
+		<file:write doc:name="Write Excell" doc:id="7020adb7-122a-4e4a-b767-59cb3562f778" config-ref="desktop-excell" path="test.xlsx">
+			<file:content><![CDATA[#[vars.newexcell]]]></file:content>
+		</file:write>
+	</flow>
+	<flow name="process-wrong" doc:id="a281587e-6382-4552-8366-82d03c4051bf" >
+		<set-payload value="#[output text/plain --- (&quot;&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;body&gt;
+
+&lt;h1&gt; ERROR: &quot; ++ payload.controlecode as String ++ &quot; is fout!&lt;/h1&gt;
+
+&lt;h2&gt;Bel bij twijfel het 2e warmlopertje bestuur der pivo's SUO&lt;h2&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;&quot;) as String]" doc:name="Set Payload" doc:id="0854810d-e99a-408b-a7dc-59a6bb26ef6c" mimeType="text/html"/>
+	</flow>
+	<flow name="allow-claims" doc:id="f922d0f9-caa4-4744-89e5-644eeef6a952" >
+		<http:listener doc:name="Listener" doc:id="f0be1adc-b0a8-4572-afe8-82c53624c7c0" config-ref="HTTP_Listener_config" path="/allowclaims" allowedMethods="POST"/>
+		<validation:is-not-null doc:name="Is not null" doc:id="2003df14-e55c-41f7-90ea-ab9536cab089" config-ref="Validation_Config" value="#[payload.allowclaims]"/>
+		<os:store doc:name="Store" doc:id="179f5381-5a43-4de6-8e02-13647f88305a" key="allowclaims" objectStore="OS_allowclaims">
+			<os:value ><![CDATA[#[payload.allowclaims as Boolean]]]></os:value>
+		</os:store>
+	</flow>
+	<flow name="test-apiFlow" doc:id="86033479-1047-42dc-affc-56b7f440b9c6" >
+		<http:listener doc:name="Listener" doc:id="7146cdba-17af-4b6c-885a-8fa591174a1d" config-ref="HTTP_Listener_config" path="/*" allowedMethods="GET"/>
+		<http:load-static-resource doc:name="Load static resource" doc:id="efaeb332-9698-407c-a614-a314f901bbab" resourceBasePath='${mule.home}/apps/${app.name}/' defaultFile="form.html"/>
+	</flow>
+	<flow name="test-apiFlow1" doc:id="6cef6d89-3f1c-47f1-8980-8a0f1f85c572" >
+		<http:listener doc:name="Listener" doc:id="0aa1c9e6-7420-48d9-b9ab-58bbb46af706" config-ref="HTTP_Listener_config" path="/*" allowedMethods="POST"/>
+		<ee:transform doc:name="sanitize input" doc:id="6032d6ea-65b8-4106-b63d-959a2b434b9d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<validation:is-not-blank-string doc:name="Is not blank string kwadrant" doc:id="38f8c7a7-a76b-44fa-9183-60d1728d235b" value="#[payload.kwadrant]" config-ref="Validation_Config" message="vul anders ff een kwadrant in met je bakkes"/>
+		<os:contains doc:name="Contains" doc:id="b75fa64c-3018-4b16-aa2b-4f40508e9041" key="#[payload.kwadrant]" objectStore="OS_controleCodes" target="exists"/>
+		<validation:is-true doc:name="Is true" doc:id="77583422-71db-4fc8-a73b-62550072aaae" config-ref="Validation_Config" expression="#[vars.exists]" message="Yo, vul eens een bestaand kwadrant in"/>
+		<validation:is-number doc:name="Is number" doc:id="db3916e7-384c-426a-b626-b1eea16eac99" value="#[payload.kwadrant]" minValue="1" maxValue="150" numberType="INTEGER" message="dat is geen kwadrant id..... lul, niet proberen te hacken, lukt toch niet" config-ref="Validation_Config"/>
+		<validation:is-not-blank-string doc:name="Is not blank string kleur" doc:id="a65777ef-e5b4-4f9c-b165-932a8f2c7917" value="#[payload.kleur]" message="kleur/team mag niet ontbreken" config-ref="Validation_Config"/>
+		<validation:is-not-blank-string doc:name="Is not blank string subteam" doc:id="69ebc691-d9ed-4085-8768-aded9908c53f" value="#[payload.subteam]" message="subteam mag niet leeg zijn" config-ref="Validation_Config"/>
+		<validation:is-number numberType="INTEGER" doc:name="Is number subteam" doc:id="d4f0e3e8-0156-4c5c-b81f-5f7b18b3d082" value="#[payload.subteam]" minValue="1" maxValue="3" message="subteam moet een nummer van 1 tot 3 zijn (zonder komma's biatch)" config-ref="Validation_Config"/>
+		<logger level="INFO" doc:name="Log payload" doc:id="08a2e936-b96b-44aa-a186-63c6131c91c6" message="#[payload]" />
+		<os:retrieve doc:name="Retrieve-controlecode" doc:id="07656091-65eb-47f3-8c4c-f237026dcbc8" key="#[payload.kwadrant as String]" objectStore="OS_controleCodes" target="code"/>
+		<os:retrieve doc:name="Retrieve-reclaimflag" doc:id="41b43718-bb05-4bd9-bb29-ef2926f442cd" key="allowclaims" objectStore="OS_allowclaims" target="allowclaims">
+			<os:default-value ><![CDATA[#[true]]]></os:default-value>
+		</os:retrieve>
+		<choice doc:name="Choice" doc:id="46f4703f-0483-4dae-a14f-156dec8a87f1" >
+			<when expression="#[vars.code as Number == payload.controlecode as Number]">
+				<choice doc:name="Choice" doc:id="c2e44dad-7daa-4cab-890c-b0691b319b3e" >
+					<when expression="#[vars.allowclaims]">
+						<flow-ref doc:name="Flow Reference" doc:id="dca0d056-e96b-4af1-b7b4-6231ea15f2c9" name="process-correct" />
+					</when>
+					<otherwise >
+						<os:contains doc:name="Contains" doc:id="4e5587c1-3227-4bd2-bcde-127626450a33" key="#[payload.kwadrant]" objectStore="OS_hasbeenclaimed" target="hasbeenclaimed"/>
+						<validation:is-false doc:name="Is false" doc:id="86c22f60-27aa-41be-85a5-6966ab7b421a" config-ref="Validation_Config" expression="#[vars.hasbeenclaimed]" message="Yo, die is al geclaimd pik"/>
+						<os:store doc:name="Store" doc:id="4efcdf43-1248-4d22-83bd-7c5d5dc0535e" objectStore="OS_hasbeenclaimed" key="#[payload.kwadrant]">
+			<os:value><![CDATA[#[true]]]></os:value>
+		</os:store>
+						<flow-ref doc:name="Flow Reference" doc:id="a828e202-2af4-428f-8838-a38ed0268c98" name="process-correct" />
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise>
+				<logger level="WARN" doc:name="Logger" doc:id="eae8c5c1-d5eb-4e73-b99f-58dcfc30ffe8" message='#["Team " ++ payload.kleur ++ " " ++ payload.subteam ++ " vult shit in."]'/>
+				<flow-ref doc:name="Flow Reference" doc:id="59d55d66-4419-4306-81c4-2eb16e49892b" name="process-wrong" />
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="initgame" doc:id="c7315439-a2e6-4eea-a150-bc6f7ae1b103" >
+		<scheduler doc:name="Scheduler" doc:id="e63b289f-08c0-4285-8e0d-198b3612a5c0" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="2" timeUnit="DAYS"/>
+			</scheduling-strategy>
+		</scheduler>
+		<os:store doc:name="Store" doc:id="41b6eba8-d981-4aa7-abdb-b3a43be216f5" key="allowclaims" objectStore="OS_allowclaims">
+			<os:value ><![CDATA[#[false]]]></os:value>
+		</os:store>
+		<file:read doc:name="Read" doc:id="385879fc-3326-4fca-8bf2-a1cc6c32620a" path="controlecodes.csv" config-ref="file-csv"/>
+		<logger level="INFO" doc:name="Logger" doc:id="16d94b03-55cc-495f-b802-3bd964a39b17" message="#[output application/json --- payload]" />
+		<foreach doc:name="For Each" doc:id="c7608067-7d50-487e-8b47-8b4e0ab6156a" collection="#[payload]">
+			<os:store doc:name="Store" doc:id="ce2da435-5eac-49e3-88ec-8deb21cb713d" key="#[payload[0].locatieID as String]" objectStore="OS_controleCodes">
+				<os:value ><![CDATA[#[output application/java --- payload[0].controleCode as Number]]]></os:value>
+			</os:store>
+			<logger level="INFO" doc:name="Logger" doc:id="453614e6-2c73-4c90-a510-95db1a0578d8" message='#["stored locatieID: " ++ payload[0].locatieID ++ "with controleCode: " ++ payload[0].controleCode]' />
+		</foreach>
+	</flow>
+</mule>

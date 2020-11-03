@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<types:mule xmlns:types="http://www.mulesoft.org/schema/mule/types">
+  <types:catalog>
+    <types:type name="controlecodes-csv" format="csv">
+      <types:shape format="weave" example="controlecodes.csv"><![CDATA[%dw 2.0
+
+type controlecodes_csv = Array<{|  locatieID: String,   controleCode: String,   naam: String|}>
+
+]]></types:shape>
+      <types:properties>
+        <types:property name="headerLineNumber" value="0"/>
+        <types:property name="header" value="true"/>
+        <types:property name="isQuotedString" value="false"/>
+      </types:properties>
+    </types:type>
+  </types:catalog>
+  <types:enrichment select="#65cb0762-0d12-4c06-a738-f1dfc3e29031">
+    <types:processor-declaration>
+      <types:input-event>
+        <types:variables>
+          <types:variable name="oldvalues" type="controlecodes-csv"/>
+        </types:variables>
+      </types:input-event>
+    </types:processor-declaration>
+  </types:enrichment>
+  <types:enrichment select="#cf42a85d-1a15-4437-ad22-5f77806284ad"/>
+</types:mule>
